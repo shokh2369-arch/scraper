@@ -1,0 +1,26 @@
+{
+  "name": "task",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "got": "^11.8.6",
+    "http-proxy": "^1.18.1",
+    "https-proxy-agent": "^7.0.6",
+    "nodemon": "^3.1.11",
+    "pg": "^8.16.3",
+    "proxifly": "^2.0.4",
+    "socks-proxy-agent": "^8.0.5",
+    "tunnel": "^0.0.6"
+  },
+  "description": ""
+}
