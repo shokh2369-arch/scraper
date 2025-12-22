@@ -341,7 +341,7 @@ async function getSeeds(baseUrl, name) {
   console.log(`Finished seeds for ${name}`);
 }
 async function main() {
-  // await getAll();
+  await getAll();
   await getInfo();
 }
 
