@@ -23,7 +23,7 @@ page();
 
 async function individual() {
   await pool.query(`
-       CREATE TABLE IF NOT EXISTS allSkins(
+       CREATE TABLE IF NOT EXISTS skins(
     skin_name TEXT PRIMARY KEY REFERENCES links(name) ON DELETE CASCADE,
     img TEXT,
     pattern TEXT,
@@ -37,6 +37,7 @@ async function individual() {
     steam_market_listings JSONB,
     createdAt TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP
+    
 ); 
 `);
   console.log('Table named individual has been successfully created');
@@ -46,18 +47,20 @@ individual();
 
 async function seed() {
   await pool.query(`
-  CREATE TABLE IF NOT EXISTS seed_s (
-  skin_name TEXT NOT NULL,
-  seed_count INT NOT NULL,
-  offset_x NUMERIC,
-  offset_y NUMERIC,
-  rotation NUMERIC,
-  any_blue NUMERIC,
-  blue_gem_top NUMERIC,
-  blue_gem_magazine NUMERIC,
-  blue_gem NUMERIC,
-  UNIQUE (skin_name, seed_count)
+ CREATE TABLE IF NOT EXISTS seeds (
+    skin_name TEXT NOT NULL,
+    seed_count INTEGER NOT NULL,
+    img TEXT,
+    offset_x NUMERIC,
+    offset_y NUMERIC,
+    rotation NUMERIC,
+    any_blue NUMERIC,
+    blue_gem_top NUMERIC,
+    blue_gem_magazine NUMERIC,
+    blue_gem NUMERIC,
+    PRIMARY KEY (skin_name, seed_count)
 );
+
 
   `);
   console.log('Table named seeds has been successfully created');

@@ -17,6 +17,7 @@
     "http-proxy": "^1.18.1",
     "https-proxy-agent": "^7.0.6",
     "nodemon": "^3.1.11",
+    "p-limit": "^7.2.0",
     "pg": "^8.16.3",
     "proxifly": "^2.0.4",
     "socks-proxy-agent": "^8.0.5",

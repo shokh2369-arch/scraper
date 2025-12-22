@@ -1,6 +1,6 @@
-const fetchWithRotatingProxies = require('./rotator');
 const cheerio = require('cheerio');
 const pool = require('./db');
+const fetchWithRotatingProxies = require('./rotator');
 
 async function getAll() {
   let page = 1;
@@ -81,15 +81,23 @@ async function getInfo() {
     for (const row of links) {
       const data = await fetchWithRotatingProxies(row.link);
       const $ = cheerio.load(data);
+
       const skinName = row.name;
-      const img = $('.img-fluid.slider-preview.seed-list-image.w-100').attr(
-        'src'
-      );
+
+      const img =
+        $('img[alt="skin preview"]')
+          .filter((_, el) => {
+            const src = $(el).attr('src');
+            return src && !src.startsWith('data:image');
+          })
+          .first()
+          .attr('src') ?? null;
+
       const pattern = $('p:contains("Pattern:")')
         .text()
         .replace('Pattern:', '')
         .trim();
-      const img_style = $('.card-img-top').attr('src');
+      const img_style = $('.card-img-top').last().attr('src');
       const paintStyle = $('p:contains("Paint Style")')
         .text()
         .replace('Paint Style:', '')
@@ -123,7 +131,7 @@ async function getInfo() {
       let steam_market_listings = {};
 
       $('.tab-content .tab-pane').each((i, el) => {
-        const tabName = $(el).attr('id'); // normal, stattrak, etc.
+        const tabName = $(el).attr('id');
         steam_market_listings[tabName] = [];
 
         $(el)
@@ -133,13 +141,13 @@ async function getInfo() {
               .find('.fw-bold')
               .contents()
               .get(0)
-              .nodeValue.trim(); // "Factory New", "Minimal Wear", etc.
-            const countText = $(item).find('.fw-bold span.badge').text().trim(); // "22", "68", etc.
+              .nodeValue.trim();
+            const countText = $(item).find('.fw-bold span.badge').text().trim();
             const priceText = $(item)
               .contents()
               .filter((i, el) => el.type === 'text')
               .text()
-              .trim(); // "$512.04"
+              .trim();
 
             const count = parseInt(countText, 10) || 0;
             const price = parseFloat(priceText.replace('$', '')) || 0;
@@ -176,23 +184,23 @@ async function getInfo() {
 
       await pool.query(
         `
-  INSERT INTO allSkins(
+  INSERT INTO skins(
           skin_name, img, pattern, img_style, paint_style, pattern_scale,
           weapon_length, weapon_uv_scale, collection_img, collection_name, steam_market_listings, updated_at
         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         ON CONFLICT (skin_name) 
-        DO UPDATE SET
-         img = EXCLUDED.img,
-         pattern = EXCLUDED.pattern,
-         img_style = EXCLUDED.img_style,
-         paint_style = EXCLUDED.paint_style,
-         pattern_scale = EXCLUDED.pattern_scale,
-         weapon_length = EXCLUDED.weapon_length,
-         weapon_uv_scale = EXCLUDED.weapon_uv_scale,
-         collection_img = EXCLUDED.collection_img,
-         collection_name = EXCLUDED.collection_name,
-         steam_market_listings = EXCLUDED.steam_market_listings,
-         updated_at = EXCLUDED.updated_at;
+       DO UPDATE SET
+  img = COALESCE(EXCLUDED.img, skins.img),
+  pattern = EXCLUDED.pattern,
+  img_style = EXCLUDED.img_style,
+  paint_style = EXCLUDED.paint_style,
+  pattern_scale = EXCLUDED.pattern_scale,
+  weapon_length = EXCLUDED.weapon_length,
+  weapon_uv_scale = EXCLUDED.weapon_uv_scale,
+  collection_img = EXCLUDED.collection_img,
+  collection_name = EXCLUDED.collection_name,
+  steam_market_listings = EXCLUDED.steam_market_listings,
+  updated_at = EXCLUDED.updated_at;
 
   `,
         [
@@ -219,77 +227,121 @@ async function getInfo() {
     console.log(err);
   }
 }
-
 async function getSeeds(baseUrl, name) {
   let page = 1;
 
   while (true) {
-    const url = `${baseUrl}?page=${page}`;
-    const data = await fetchWithRotatingProxies(url);
-    const $ = cheerio.load(data);
+    try {
+      const url = `${baseUrl}?page=${page}`;
+      const data = await fetchWithRotatingProxies(url);
+      const $ = cheerio.load(data);
 
-    const activeText = $('.pagination .page-item.active').text().trim();
-    if (activeText) {
-      const activePage = Number(activeText);
-      if (activePage !== page) break;
+      const activePage = Number(
+        $('.pagination .page-item.active').text().trim()
+      );
+      if (activePage && activePage !== page) {
+        console.log(
+          `Requested page ${page}, but server returned page ${activePage}. Stopping.`
+        );
+        break;
+      }
+
+      const seedCards = $('.weapon_preview_body');
+      if (!seedCards.length) break;
+
+      for (let i = 0; i < seedCards.length; i++) {
+        const card = seedCards.eq(i);
+        const seedTitle = card.find('.card-title').text().trim();
+        const seedMatch = seedTitle.match(/\d+/);
+        if (!seedMatch) continue;
+
+        let img = null;
+
+        const seedImg = card
+          .find('img.seed-list-image')
+          .filter((_, el) => {
+            const src = $(el).attr('src') || $(el).attr('data-src');
+            return src && !src.startsWith('data:image/svg');
+          })
+          .first()
+          .attr('src');
+
+        if (seedImg) {
+          img = seedImg;
+        }
+
+        const seed_count = Number(seedMatch[0]);
+
+        const getNum = (label) => {
+          const match = card
+            .find(`li:contains("${label}")`)
+            .text()
+            .match(/[0-9.]+/);
+          return match ? Number(match[0]) : null;
+        };
+
+        const offsetX = getNum('Offset X');
+        const offsetY = getNum('Offset Y');
+        const rotation = getNum('Rotation');
+        const anyBlue = getNum('Any Blue');
+        const blueGemTop = getNum('Blue Gem Top');
+        const blueGemMagazine = getNum('Blue Gem Magazine');
+        const blueGem = getNum('Blue Gem');
+
+        try {
+          await pool.query(
+            `
+            INSERT INTO seeds (
+              skin_name, img, seed_count, 
+              offset_x, offset_y,
+              rotation, any_blue,
+              blue_gem_top, blue_gem_magazine, blue_gem
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            ON CONFLICT (skin_name, seed_count) DO UPDATE
+            SET
+              offset_x = EXCLUDED.offset_x,
+              offset_y = EXCLUDED.offset_y,
+              rotation = EXCLUDED.rotation,
+              any_blue = EXCLUDED.any_blue,
+              blue_gem_top = EXCLUDED.blue_gem_top,
+              blue_gem_magazine = EXCLUDED.blue_gem_magazine,
+              blue_gem = EXCLUDED.blue_gem;
+            `,
+            [
+              name,
+              img,
+              seed_count,
+              offsetX,
+              offsetY,
+              rotation,
+              anyBlue,
+              blueGemTop,
+              blueGemMagazine,
+              blueGem,
+            ]
+          );
+          console.log(`✅ Seed ${seed_count} saved for ${name}`);
+        } catch (dbErr) {
+          console.error(
+            `❌ DB error for seed ${seed_count} of ${name}:`,
+            dbErr.message
+          );
+        }
+      }
+
+      console.log(`✅ Seeds page ${page} saved for ${name}`);
+      page++;
+    } catch (err) {
+      console.error(`❌ Error fetching page ${page} for ${name}:`, err.message);
+      break;
     }
-
-    const title = $('.card-title').text().trim();
-    if (!title) break;
-
-    const seedMatch = title.match(/\d+/);
-    if (!seedMatch) break;
-    const seed_count = Number(seedMatch[0]);
-
-    const getNum = (label) => {
-      const match = $(`li:contains("${label}")`)
-        .text()
-        .match(/[0-9.]+/);
-      return match ? Number(match[0]) : null;
-    };
-
-    await pool.query(
-      `
-      INSERT INTO seed_s (
-        skin_name, seed_count,
-        offset_x, offset_y,
-        rotation, any_blue,
-        blue_gem_top, blue_gem_magazine, blue_gem
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      ON CONFLICT (skin_name, seed_count) 
-      DO UPDATE SET
-      seed_count = EXCLUDED.seed_count,
-      offset_x = EXCLUDED.offset_x,
-      offset_y = EXCLUDED.offset_y,
-      rotation = EXCLUDED.rotation,
-      any_blue = EXCLUDED.any_blue,
-      blue_gem_top = EXCLUDED.blue_gem_top,
-      blue_gem_magazine = EXCLUDED.blue_gem_magazine,
-      blue_gem = EXCLUDED.blue_gem;
-      `,
-      [
-        name,
-        seed_count,
-        getNum('Offset X'),
-        getNum('Offset Y'),
-        getNum('Rotation'),
-        getNum('Any Blue'),
-        getNum('Blue Gem Top'),
-        getNum('Blue Gem Magazine'),
-        getNum('Blue Gem'),
-      ]
-    );
-
-    console.log(`✅ Seeds page ${page} saved for ${name}`);
-    page++;
   }
 
   console.log(`Finished seeds for ${name}`);
 }
-
 async function main() {
-  await getAll();
+  // await getAll();
   await getInfo();
 }
 
