@@ -1,4 +1,4 @@
-const { main } = require('./scraper');
+const  main  = require('./scraper');
 const express = require('express');
 const pool = require('./db');
 //const { scrapeSkinByName } = require('./scrape_single');
