@@ -38,3 +38,4 @@ async function getGeneral(url) {
   console.log(`Scraping for ${inserts.name} successfully done`);
 }
 module.exports = getGeneral;
+//under construction
