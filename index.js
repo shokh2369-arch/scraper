@@ -1,7 +1,6 @@
-const { main } = require('./scraper');
+const main = require('./scraper');
 const express = require('express');
 const pool = require('./db');
-//const { scrapeSkinByName } = require('./scrape_single');
 const app = express();
 app.use(express.json());
 main();
@@ -27,58 +26,70 @@ app.listen(3000, () => {
 
 async function getSkins(skinName) {
   const query = `
-    SELECT
-      l.*,
+    SELECT 
       s.*,
-      se.*
-    FROM links l
-    JOIN skins s ON s.skin_name = l.name
-    LEFT JOIN seeds se ON se.skin_name = s.skin_name
+      l.link,
+      COALESCE(l.name, s.skin_name) AS display_name
+    FROM skins s
+    LEFT JOIN links l ON (
+      l.name = s.skin_name OR
+      REPLACE(l.name, ' ', ' | ') = s.skin_name OR
+      REPLACE(s.skin_name, ' | ', ' ') = l.name
+    )
     WHERE s.skin_name = $1
-    ORDER BY se.seed_count
   `;
 
-  const { rows } = await pool.query(query, [skinName]);
-  return rows;
+  const skinResult = await pool.query(query, [skinName]);
+  if (skinResult.rowCount === 0) return [];
+
+  const baseSkin = skinResult.rows[0];
+
+  // Separately fetch seeds
+  const seedsQuery = `
+    SELECT * FROM seeds 
+    WHERE skin_name = $1 
+    ORDER BY seed_count ASC
+  `;
+  const seedsResult = await pool.query(seedsQuery, [skinName]);
+
+  return {
+    base: baseSkin,
+    seeds: seedsResult.rows,
+  };
 }
 
-function mapSkin(rows) {
-  if (rows.length === 0) return null;
+function mapSkin(data) {
+  if (!data || data.base === undefined) return null;
 
-  const skin = {
-    name: rows[0].name,
-    link: rows[0].link,
+  const { base, seeds } = data;
 
-    skin_name: rows[0].skin_name,
-    img: rows[0].img,
-    pattern: rows[0].pattern,
-    img_style: rows[0].img_style,
-    paint_style: rows[0].paint_style,
-    pattern_scale: rows[0].pattern_scale,
-    weapon_length: rows[0].weapon_length,
-    weapon_uv_scale: rows[0].weapon_uv_scale,
-    collection_img: rows[0].collection_img,
-    collection_name: rows[0].collection_name,
-    steam_market_listings: rows[0].steam_market_listings,
+  return {
+    name: base.display_name || base.skin_name,
+    link: base.link || null,
 
-    seeds: [],
+    skin_name: base.skin_name,
+    img: base.img,
+    pattern: base.pattern,
+    img_style: base.img_style,
+    paint_style: base.paint_style,
+    pattern_scale: base.pattern_scale,
+    weapon_length: base.weapon_length,
+    weapon_uv_scale: base.weapon_uv_scale,
+    collection_img: base.collection_img,
+    collection_name: base.collection_name,
+    steam_market_listings: base.steam_market_listings,
+    updated_at: base.updated_at,
+
+    seeds: seeds.map((seed) => ({
+      img: seed.img,
+      seed_count: seed.seed_count,
+      offset_x: seed.offset_x,
+      offset_y: seed.offset_y,
+      rotation: seed.rotation,
+      any_blue: seed.any_blue,
+      blue_gem_top: seed.blue_gem_top,
+      blue_gem_magazine: seed.blue_gem_magazine,
+      blue_gem: seed.blue_gem,
+    })),
   };
-
-  for (const row of rows) {
-    if (row.seed_count !== null) {
-      skin.seeds.push({
-        img: row.img,
-        seed_count: row.seed_count,
-        offset_x: row.offset_x,
-        offset_y: row.offset_y,
-        rotation: row.rotation,
-        any_blue: row.any_blue,
-        blue_gem_top: row.blue_gem_top,
-        blue_gem_magazine: row.blue_gem_magazine,
-        blue_gem: row.blue_gem,
-      });
-    }
-  }
-
-  return skin;
 }

@@ -15,7 +15,7 @@ async function getAll() {
     while (!data) {
       data = await fetchWithRotatingProxies(url);
       if (!data) {
-        console.log(`❌ All proxies failed for page ${page}, retrying...`);
+        console.log(`All proxies failed for page ${page}, retrying...`);
         await new Promise((res) => setTimeout(res, 2000));
       }
     }
@@ -83,21 +83,36 @@ async function getInfo() {
       const $ = cheerio.load(data);
 
       const skinName = row.name;
+      let img = null;
 
-      const img =
-        $('img[alt="skin preview"]')
-          .filter((_, el) => {
-            const src = $(el).attr('src');
-            return src && !src.startsWith('data:image');
-          })
-          .first()
-          .attr('src') ?? null;
+      $('#image-slider img[alt="skin preview"]').each((_, el) => {
+        const src =
+          $(el).attr('src') ||
+          $(el).attr('data-original') ||
+          $(el).attr('data-src');
+
+        if (src && !src.startsWith('data:image')) {
+          img = src;
+          return false;
+        }
+      });
+
+      if (!img) {
+        $('img.seed-list-image').each((_, el) => {
+          const src = $(el).attr('data-original') || $(el).attr('src');
+
+          if (src && !src.startsWith('data:image')) {
+            img = src;
+            return false;
+          }
+        });
+      }
 
       const pattern = $('p:contains("Pattern:")')
         .text()
         .replace('Pattern:', '')
         .trim();
-      const img_style = $('.card-img-top').last().attr('src');
+      const img_style = $('img[alt="pattern preview"]').last().attr('src');
       const paintStyle = $('p:contains("Paint Style")')
         .text()
         .replace('Paint Style:', '')
@@ -190,7 +205,7 @@ async function getInfo() {
         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         ON CONFLICT (skin_name) 
        DO UPDATE SET
-  img = COALESCE(EXCLUDED.img, skins.img),
+  img = EXCLUDED.img, 
   pattern = EXCLUDED.pattern,
   img_style = EXCLUDED.img_style,
   paint_style = EXCLUDED.paint_style,
@@ -341,7 +356,7 @@ async function getSeeds(baseUrl, name) {
   console.log(`Finished seeds for ${name}`);
 }
 async function main() {
-  await getAll();
+  // await getAll();
   await getInfo();
 }
 

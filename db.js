@@ -24,7 +24,7 @@ page();
 async function individual() {
   await pool.query(`
        CREATE TABLE IF NOT EXISTS skins(
-    skin_name TEXT PRIMARY KEY REFERENCES links(name) ON DELETE CASCADE,
+    skin_name TEXT PRIMARY KEY REFERENCES links(name),
     img TEXT,
     pattern TEXT,
     img_style TEXT,
