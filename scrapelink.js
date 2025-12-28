@@ -310,9 +310,14 @@ async function getSeeds(baseUrl, name) {
 
   console.log(`Finished seeds for ${name}`);
 }
+<<<<<<< HEAD
 async function scrape(url) {
   await getGeneral(url);
   await getInfo(url);
 }
 
 module.exports = scrape;
+=======
+module.exports = getGeneral;
+//under construction
+>>>>>>> b85cc7cd17132e6d00f9844d372c7fd945a3e7c3
