@@ -11,30 +11,308 @@ async function getGeneral(url) {
   const data = await fetchWithRotatingProxies(url);
   const $ = cheerio.load(data);
 
-  const inserts = [];
-
-  $('.card-title').each((_, el) => {
-    const name = $(el).text().trim();
-    const href = $(el).closest('a.text-link').attr('href');
-    if (name && href)
-      inserts.push({ name, link: `https://pattern.wiki${href}` });
-  });
-
+  const name = $('.text-link span').first().text().trim();
   scrapedAny = true;
 
-  for (const skin of inserts) {
-    try {
-      await pool.query(
-        `INSERT INTO links(name, link)
+  try {
+    await pool.query(
+      `INSERT INTO links(name, link)
            VALUES ($1, $2)
            ON CONFLICT (name) DO NOTHING`,
-        [skin.name, skin.link]
+      [name, url]
+    );
+  } catch (err) {
+    console.log(`❌ DB error for ${name}:`, err.message);
+  }
+
+  console.log(`Scraping for ${name} successfully done`);
+}
+
+async function getInfo(url) {
+  try {
+    const result = await pool.query(`SELECT name FROM links WHERE link=$1`, [
+      url,
+    ]);
+    if (result.rowCount === 0) {
+      throw new Error(`No entry found in links table for url: ${url}`);
+    }
+    const skinName = result.rows[0].name;
+
+    const data = await fetchWithRotatingProxies(url);
+    const $ = cheerio.load(data);
+
+    let img = null;
+
+    $('#image-slider img[alt="skin preview"]').each((_, el) => {
+      const src =
+        $(el).attr('src') ||
+        $(el).attr('data-original') ||
+        $(el).attr('data-src');
+
+      if (src && !src.startsWith('data:image')) {
+        img = src;
+        return false;
+      }
+    });
+
+    if (!img) {
+      $('img.seed-list-image').each((_, el) => {
+        const src = $(el).attr('data-original') || $(el).attr('src');
+
+        if (src && !src.startsWith('data:image')) {
+          img = src;
+          return false;
+        }
+      });
+    }
+
+    const pattern = $('p:contains("Pattern:")')
+      .text()
+      .replace('Pattern:', '')
+      .trim();
+    const img_style = $('img[alt="pattern preview"]').last().attr('src');
+    const paintStyle = $('p:contains("Paint Style")')
+      .text()
+      .replace('Paint Style:', '')
+      .trim();
+    const patternScale = parseFloat(
+      $('p:contains("Pattern Scale")')
+        .text()
+        .replace('Pattern Scale:', '')
+        .trim()
+    );
+    const weaponLength = parseFloat(
+      $('p:contains("Weapon Length")')
+        .text()
+        .replace('Weapon Length:', '')
+        .trim()
+    );
+    const weaponUvScale = parseFloat(
+      $('p:contains("Weapon UV Scale")').text().replace('Weapon UV Scale:', '')
+    );
+
+    const collection_img = [];
+    const collection_name = [];
+    $('.img-sm').each((i, el) => {
+      collection_img.push($(el).attr('src'));
+      const name = $(el).attr('alt');
+      if (name) collection_name.push(name.trim());
+    });
+
+    let steam_market_listings = {};
+
+    $('.tab-content .tab-pane').each((i, el) => {
+      const tabName = $(el).attr('id');
+      steam_market_listings[tabName] = [];
+
+      $(el)
+        .find('a.list-group-item')
+        .each((j, item) => {
+          const conditionText = $(item)
+            .find('.fw-bold')
+            .contents()
+            .get(0)
+            .nodeValue.trim();
+          const countText = $(item).find('.fw-bold span.badge').text().trim();
+          const priceText = $(item)
+            .contents()
+            .filter((i, el) => el.type === 'text')
+            .text()
+            .trim();
+
+          const count = parseInt(countText, 10) || 0;
+          const price = parseFloat(priceText.replace('$', '')) || 0;
+
+          steam_market_listings[tabName].push({
+            condition: conditionText,
+            count,
+            price,
+          });
+        });
+    });
+
+    const updatedText = $('.badge.rounded-pill.bg-dark').text().trim();
+
+    const parseUpdatedAt = (text) => {
+      const now = new Date();
+
+      const matchYears = text.match(/(\d+)\s+years?/);
+      const matchMonths = text.match(/(\d+)\s+months?/);
+      const matchDays = text.match(/(\d+)\s+days?/);
+
+      let date = new Date(now);
+
+      if (matchYears)
+        date.setFullYear(date.getFullYear() - parseInt(matchYears[1]));
+      if (matchMonths)
+        date.setMonth(date.getMonth() - parseInt(matchMonths[1]));
+      if (matchDays) date.setDate(date.getDate() - parseInt(matchDays[1]));
+
+      return date;
+    };
+
+    const updatedAt = parseUpdatedAt(updatedText);
+
+    await pool.query(
+      `
+  INSERT INTO skins(
+          skin_name, img, pattern, img_style, paint_style, pattern_scale,
+          weapon_length, weapon_uv_scale, collection_img, collection_name, steam_market_listings, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT (skin_name) 
+       DO UPDATE SET
+  img = EXCLUDED.img, 
+  pattern = EXCLUDED.pattern,
+  img_style = EXCLUDED.img_style,
+  paint_style = EXCLUDED.paint_style,
+  pattern_scale = EXCLUDED.pattern_scale,
+  weapon_length = EXCLUDED.weapon_length,
+  weapon_uv_scale = EXCLUDED.weapon_uv_scale,
+  collection_img = EXCLUDED.collection_img,
+  collection_name = EXCLUDED.collection_name,
+  steam_market_listings = EXCLUDED.steam_market_listings,
+  updated_at = EXCLUDED.updated_at;
+
+  `,
+      [
+        skinName,
+        img,
+        pattern,
+        img_style,
+        paintStyle,
+        patternScale,
+        weaponLength,
+        weaponUvScale,
+        collection_img,
+        collection_name,
+        steam_market_listings,
+        updatedAt,
+      ]
+    );
+    console.log(`Saved: ${skinName}`);
+
+    await getSeeds(url, skinName);
+    console.log('Done!');
+  } catch (err) {
+    console.log(err);
+  }
+}
+async function getSeeds(baseUrl, name) {
+  let page = 1;
+
+  while (true) {
+    try {
+      const url = `${baseUrl}?page=${page}`;
+      const data = await fetchWithRotatingProxies(url);
+      const $ = cheerio.load(data);
+
+      const activePage = Number(
+        $('.pagination .page-item.active').text().trim()
       );
+      if (activePage && activePage !== page) {
+        console.log(
+          `Requested page ${page}, but server returned page ${activePage}. Stopping.`
+        );
+        break;
+      }
+
+      const seedCards = $('.weapon_preview_body');
+      if (!seedCards.length) break;
+
+      for (let i = 0; i < seedCards.length; i++) {
+        const card = seedCards.eq(i);
+        const seedTitle = card.find('.card-title').text().trim();
+        const seedMatch = seedTitle.match(/\d+/);
+        if (!seedMatch) continue;
+
+        let img = null;
+
+        const seedImg = card
+          .find('img.seed-list-image')
+          .filter((_, el) => {
+            const src = $(el).attr('src') || $(el).attr('data-src');
+            return src && !src.startsWith('data:image/svg');
+          })
+          .first()
+          .attr('src');
+
+        if (seedImg) {
+          img = seedImg;
+        }
+
+        const seed_count = Number(seedMatch[0]);
+
+        const getNum = (label) => {
+          const match = card
+            .find(`li:contains("${label}")`)
+            .text()
+            .match(/[0-9.]+/);
+          return match ? Number(match[0]) : null;
+        };
+
+        const offsetX = getNum('Offset X');
+        const offsetY = getNum('Offset Y');
+        const rotation = getNum('Rotation');
+        const anyBlue = getNum('Any Blue');
+        const blueGemTop = getNum('Blue Gem Top');
+        const blueGemMagazine = getNum('Blue Gem Magazine');
+        const blueGem = getNum('Blue Gem');
+
+        try {
+          await pool.query(
+            `
+            INSERT INTO seeds (
+              skin_name, img, seed_count, 
+              offset_x, offset_y,
+              rotation, any_blue,
+              blue_gem_top, blue_gem_magazine, blue_gem
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            ON CONFLICT (skin_name, seed_count) DO UPDATE
+            SET
+              offset_x = EXCLUDED.offset_x,
+              offset_y = EXCLUDED.offset_y,
+              rotation = EXCLUDED.rotation,
+              any_blue = EXCLUDED.any_blue,
+              blue_gem_top = EXCLUDED.blue_gem_top,
+              blue_gem_magazine = EXCLUDED.blue_gem_magazine,
+              blue_gem = EXCLUDED.blue_gem;
+            `,
+            [
+              name,
+              img,
+              seed_count,
+              offsetX,
+              offsetY,
+              rotation,
+              anyBlue,
+              blueGemTop,
+              blueGemMagazine,
+              blueGem,
+            ]
+          );
+          console.log(`✅ Seed ${seed_count} saved for ${name}`);
+        } catch (dbErr) {
+          console.error(
+            `❌ DB error for seed ${seed_count} of ${name}:`,
+            dbErr.message
+          );
+        }
+      }
+
+      console.log(`✅ Seeds page ${page} saved for ${name}`);
+      page++;
     } catch (err) {
-      console.log(`❌ DB error for ${skin.name}:`, err.message);
+      console.error(`❌ Error fetching page ${page} for ${name}:`, err.message);
+      break;
     }
   }
 
-  console.log(`Scraping for ${inserts.name} successfully done`);
+  console.log(`Finished seeds for ${name}`);
 }
-module.exports = getGeneral;
+async function scrape(url) {
+  await getGeneral(url);
+  await getInfo(url);
+}
+
+module.exports = scrape;

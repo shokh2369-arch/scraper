@@ -1,4 +1,5 @@
 const main = require('./scraper');
+const scrape = require('./scrapelink');
 const express = require('express');
 const pool = require('./db');
 const app = express();
@@ -93,3 +94,32 @@ function mapSkin(data) {
     })),
   };
 }
+app.post('/scrape', async (req, res) => {
+  const { link } = req.body;
+
+  if (
+    !link ||
+    typeof link !== 'string' ||
+    !link.startsWith('https://pattern.wiki/skin/')
+  ) {
+    return res.status(400).json({
+      error: 'Invalid URL. Use: { "link": "https://pattern.wiki/skin/..." }',
+    });
+  }
+
+  try {
+    console.log(`🔄 Starting scrape: ${link}`);
+    await scrape(link.trim());
+
+    res.json({
+      success: true,
+      message: '✅ Skin scraped successfully!',
+    });
+  } catch (err) {
+    console.error('Scrape error:', err);
+    res.status(500).json({
+      error: 'Scrape failed',
+      details: err.message,
+    });
+  }
+});

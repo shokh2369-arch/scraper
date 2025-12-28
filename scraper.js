@@ -15,7 +15,7 @@ async function getAll() {
     while (!data) {
       data = await fetchWithRotatingProxies(url);
       if (!data) {
-        console.log(`All proxies failed for page ${page}, retrying...`);
+        console.log(`❌ All proxies failed for page ${page}, retrying...`);
         await new Promise((res) => setTimeout(res, 2000));
       }
     }
@@ -356,7 +356,7 @@ async function getSeeds(baseUrl, name) {
   console.log(`Finished seeds for ${name}`);
 }
 async function main() {
-  // await getAll();
+  await getAll();
   await getInfo();
 }
 
